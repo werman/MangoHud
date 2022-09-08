@@ -1,3 +1,4 @@
+#include <array>
 #include <sstream>
 #include <iomanip>
 #include <spdlog/spdlog.h>

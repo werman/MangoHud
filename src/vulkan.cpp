@@ -34,6 +34,7 @@
 #include <list>
 #include <array>
 #include <iomanip>
+#include <sstream>
 #include <inttypes.h>
 #include <spdlog/spdlog.h>
 #include <imgui.h>
@@ -176,6 +177,33 @@ typedef std::lock_guard<std::mutex> scoped_lock;
 std::unordered_map<uint64_t, void *> vk_object_to_data;
 
 thread_local ImGuiContext* __MesaImGui;
+
+#ifdef __ANDROID__
+static std::string getSystemProperty(const char *key)
+{
+	// Environment variables are not easy to set on Android.
+	// Make use of the system properties instead.
+	char value[256];
+	char command[256];
+	snprintf(command, sizeof(command), "getprop %s", key);
+
+	// __system_get_property is apparently removed in recent NDK, so just use popen.
+	size_t len = 0;
+	FILE *file = popen(command, "rb");
+	if (file)
+	{
+		len = fread(value, 1, sizeof(value) - 1, file);
+		// Last character is a newline, so remove that.
+		if (len > 1)
+			value[len - 1] = '\0';
+		else
+			len = 0;
+		fclose(file);
+	}
+
+	return len ? value : "";
+}
+#endif
 
 #define HKEY(obj) ((uint64_t)(obj))
 #define FIND(type, obj) (reinterpret_cast<type *>(find_object_data(HKEY(obj))))
@@ -1899,7 +1927,13 @@ static VkResult overlay_CreateInstance(
                              &instance_data->vtable);
    instance_data_map_physical_devices(instance_data, true);
 
-   parse_overlay_config(&instance_data->params, getenv("MANGOHUD_CONFIG"));
+   #ifndef __ANDROID__
+      std::string env = getenv("MANGOHUD_CONFIG");
+   #else
+      std::string env = getSystemProperty("debug.mangohud.config");
+   #endif
+
+   parse_overlay_config(&instance_data->params, env.c_str());
    _params = &instance_data->params;
 
    //check for blacklist item in the config file
@@ -1987,7 +2021,7 @@ static void *find_ptr(const char *name)
 {
     std::string f(name);
 
-    if (is_blacklisted() && (f != "vkCreateInstance" && f != "vkDestroyInstance" && f != "vkCreateDevice" && f != "vkDestroyDevice"))
+    if (is_blacklisted() && (f != "vkCreateInstance" && f != "vkDestroyInstance" && f != "vkCreateDevice" && f != "vkDestroyDevice" && f != "vkEnumerateInstanceExtensionProperties"))
     {
         return NULL;
     }
@@ -2027,3 +2061,96 @@ extern "C" VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL overlay_GetI
    if (instance_data->vtable.GetInstanceProcAddr == NULL) return NULL;
    return instance_data->vtable.GetInstanceProcAddr(instance, funcName);
 }
+
+#ifdef __ANDROID__
+
+static const VkLayerProperties layerProps[] = {
+	{ "VK_LAYER_MANGOAPP_overlay", VK_MAKE_VERSION(1, 3, 213), 1, "Mangoapp Layer" },
+};
+
+extern "C" VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
+vkEnumerateInstanceExtensionProperties(const char *pLayerName, uint32_t *pPropertyCount,
+                                       VkExtensionProperties *pProperties)
+{
+	if (!pLayerName || strcmp(pLayerName, layerProps[0].layerName))
+		return VK_ERROR_LAYER_NOT_PRESENT;
+
+	if (pProperties && *pPropertyCount != 0)
+	{
+		*pPropertyCount = 0;
+		return VK_INCOMPLETE;
+	}
+
+	*pPropertyCount = 0;
+	return VK_SUCCESS;
+}
+
+extern "C" VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
+vkEnumerateDeviceExtensionProperties(VkPhysicalDevice, const char *pLayerName,
+                                     uint32_t *pPropertyCount,
+                                     VkExtensionProperties *pProperties)
+{
+	if (pLayerName && !strcmp(pLayerName, layerProps[0].layerName))
+	{
+		if (pProperties && *pPropertyCount > 0)
+			return VK_INCOMPLETE;
+		*pPropertyCount = 0;
+		return VK_SUCCESS;
+	}
+	else
+		return VK_ERROR_LAYER_NOT_PRESENT;
+}
+
+extern "C" VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
+vkEnumerateInstanceLayerProperties(uint32_t *pPropertyCount,
+                                   VkLayerProperties *pProperties)
+{
+	if (pProperties)
+	{
+		uint32_t count = std::min(1u, *pPropertyCount);
+		memcpy(pProperties, layerProps, count * sizeof(VkLayerProperties));
+		VkResult res = count < *pPropertyCount ? VK_INCOMPLETE : VK_SUCCESS;
+		*pPropertyCount = count;
+		return res;
+	}
+	else
+	{
+		*pPropertyCount = sizeof(layerProps) / sizeof(VkLayerProperties);
+		return VK_SUCCESS;
+	}
+}
+
+extern "C" VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
+vkEnumerateDeviceLayerProperties(VkPhysicalDevice, uint32_t *pPropertyCount,
+                                 VkLayerProperties *pProperties)
+{
+	if (pProperties)
+	{
+		uint32_t count = std::min(1u, *pPropertyCount);
+		memcpy(pProperties, layerProps, count * sizeof(VkLayerProperties));
+		VkResult res = count < *pPropertyCount ? VK_INCOMPLETE : VK_SUCCESS;
+		*pPropertyCount = count;
+		return res;
+	}
+	else
+	{
+		*pPropertyCount = sizeof(layerProps) / sizeof(VkLayerProperties);
+		return VK_SUCCESS;
+	}
+}
+
+extern "C" VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+vkGetDeviceProcAddr(VkDevice dev,
+                    const char *funcName)
+{
+   return overlay_GetDeviceProcAddr(dev, funcName);
+}
+
+extern "C" VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+vkGetInstanceProcAddr(VkInstance instance,
+                      const char *funcName)
+{
+   return overlay_GetInstanceProcAddr(instance, funcName);
+}
+
+#endif

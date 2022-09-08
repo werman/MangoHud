@@ -35,11 +35,14 @@ endif
 
 # TODO: this is very incomplete
 is_unixy = false
-if ['linux', 'cygwin', 'gnu'].contains(host_machine.system())
+if ['linux', 'cygwin', 'gnu', 'android'].contains(host_machine.system())
   pre_args += '-D_GNU_SOURCE'
   pre_args += '-DHAVE_PTHREAD'
   is_unixy = true
 endif
+
+# TODO: or maybe it's better to pass it as `-Dandroid==true`?
+is_android = host_machine.system() == 'android'
 
 if get_option('glibcxx_asserts')
   pre_args += '-D_GLIBCXX_ASSERTIONS'
@@ -103,7 +106,7 @@ if dep_wayland_client.found()
   vulkan_wsi_deps += dep_wayland_client
 endif
 
-if is_unixy and not dep_x11.found() and not dep_wayland_client.found()
+if is_unixy and not dep_x11.found() and not dep_wayland_client.found() and not is_android
   error('At least one of "with_x11" and "with_wayland" should be enabled')
 endif
 

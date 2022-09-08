@@ -158,8 +158,13 @@ link_args = cc.get_supported_link_arguments(['-Wl,-Bsymbolic-functions', '-Wl,-z
 # meson fails to check version-script so just force add
 link_args += '-Wl,--version-script,@0@'.format(join_paths(meson.current_source_dir(), 'mangohud.version'))
 
+lib_name = 'MangoHud'
+if is_android
+  lib_name = 'VkLayer_MangoHud'
+endif
+
 vklayer_mesa_overlay = shared_library(
-  'MangoHud',
+  lib_name,
   mangohud_version,
   util_files,
   vk_enum_to_str,

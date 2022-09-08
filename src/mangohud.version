@@ -3,6 +3,12 @@
   global:
     overlay_GetInstanceProcAddr;
     overlay_GetDeviceProcAddr;
+    vkEnumerateInstanceExtensionProperties;
+    vkEnumerateDeviceExtensionProperties;
+    vkEnumerateInstanceLayerProperties;
+    vkEnumerateDeviceLayerProperties;
+    vkGetInstanceProcAddr;
+    vkGetDeviceProcAddr;
     glX*;
     egl*;
     dlsym;
